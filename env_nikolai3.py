@@ -27,6 +27,8 @@ def ticks_to_sqrtp(tick: int) -> float:
     # print(tick_to_price(tick))
     return SQRTDEC_FACTOR / (1.0001 ** (tick//2))  
 
+def price_to_sqrtPriceX96(p):               
+    return np.sqrt(p)*2**96
 
 # def _group_concat(frames):
 #     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
@@ -78,7 +80,7 @@ class UniswapV3LPGymEnv(gym.Env):
     def __init__(self, config: Config | None = None, feat_num: int | None = None):
         super().__init__()
         self.config = config or Config()
-        self.initial_wealth = self.config.WEALTH
+        self.current_wealth_in_USDC = self.config.WEALTH
         self.FEAT_NUM = feat_num or 6 
         self.EPISODE_LEN = 1000
 
@@ -257,6 +259,9 @@ class UniswapV3LPGymEnv(gym.Env):
 
         L_pool = in_range["liquidity"].mean()
         share  = min(self.L / (L_pool + self.L), 1.0) if L_pool > 0 else 0.0
+        # SANITY CHECK:
+        if self.L / (L_pool + self.L) > 1.0:
+            print(f"L = {self.L}, L_pool = {L_pool}, share = {share}")
         return share * fee0, share * fee1
 
 
@@ -332,6 +337,7 @@ class UniswapV3LPGymEnv(gym.Env):
         self.steps_left = self.EPISODE_LEN
 
         self.active = False
+        self.current_wealth_in_USDC = self.config.WEALTH
         self.L = 0.0
         self.cumulative_pnl = 0.0
 
@@ -343,15 +349,27 @@ class UniswapV3LPGymEnv(gym.Env):
         engage = 1 if action[0] >= 0.5 else 0
         width  = int(round(np.clip(action[1], 0, 5)))
 
-        p_cex      = self._eth_price(ts)          # USDC per ETH
-        curr_tick  = self._dex_tick(ts)
+        p_cex = self._eth_price(ts)   # USDC per ETH
 
+        # Ticks 
+        curr_tick  = self._dex_tick(ts)
         tick_l     = curr_tick + 10 * width
         tick_u     = curr_tick - 10 * width
 
-        sqrt_pl    = ticks_to_sqrtp(tick_l)
-        sqrt_pu    = ticks_to_sqrtp(tick_u)
-        sqrt_pc    = ticks_to_sqrtp(curr_tick)
+        # DEX prices (USDC per ETH)
+        price_upper = tick_to_price(tick_u)
+        price_lower = tick_to_price(tick_l)
+        price_current = tick_to_price(curr_tick)
+
+        # DEX prices in sqrtX96 format (sqrt(USDC/ETH))
+        Pu = price_to_sqrtPriceX96(price_upper)
+        Pc = price_to_sqrtPriceX96(price_current)
+        Pl = price_to_sqrtPriceX96(price_lower)
+
+        # Need to remove these variables 
+        # sqrt_pl    = ticks_to_sqrtp(tick_l) 
+        # sqrt_pu    = ticks_to_sqrtp(tick_u)
+        # sqrt_pc    = ticks_to_sqrtp(curr_tick)
 
         dx_fee, dy_fee = self._accrue_fees(ts)    # token0 = ETH, token1 = USDC
         # print(dx_fee, dy_fee)
@@ -366,12 +384,23 @@ class UniswapV3LPGymEnv(gym.Env):
             # TODO: revisit
             self.tick_l, self.tick_u = tick_l, tick_u
 
-            denom = sqrt_pc * (sqrt_pu - sqrt_pc) + sqrt_pl * (sqrt_pc - sqrt_pl)
-            self.L = max(0.0, self.initial_wealth / denom)
+            price_upper = tick_to_price(tick_u)
+            price_lower = tick_to_price(tick_l)
+            price_current = tick_to_price(curr_tick)
 
-            x0 = self.L * (sqrt_pu - sqrt_pc) / (sqrt_pc * sqrt_pu)
-            y0 = self.L * (sqrt_pc - sqrt_pl)
-            self.x_prev, self.y_prev = x0, y0
+            Pu = price_to_sqrtPriceX96(price_upper)
+            Pc = price_to_sqrtPriceX96(price_current)
+            Pl = price_to_sqrtPriceX96(price_lower)
+
+            # We solve the system of equations: 
+            # x + y*price_current = self.current_wealth_in_USDC 
+            # and the two liquidity eqautions from the paper to obtain L, x and y
+            eth_to_usdc_ratio = (Pc * Pu * (Pc - Pl)) / ((Pu - Pc) * (2**96)**2)
+            eth_share = price_current + eth_to_usdc_ratio
+
+            self.x_prev = self.current_wealth_in_USDC / eth_share
+            self.L = self.x_prev * (Pc*Pu/(Pu-Pc)) / 2**96
+            self.y_prev = self.L * (Pc - Pl) / (2**96)
 
             self.active = True
             reward -= self._gas_cost("Mint", ts)
@@ -383,18 +412,14 @@ class UniswapV3LPGymEnv(gym.Env):
             self.L = 0.0
 
         elif self.active:
-            sqrt_pl = ticks_to_sqrtp(self.tick_l)
-            sqrt_pu = ticks_to_sqrtp(self.tick_u)
-            sqrt_pc = ticks_to_sqrtp(curr_tick)
+            if Pc <= Pl:
+                xt, yt = self.L * (Pu - Pl) / (Pl * Pu), 0.0
 
-            if sqrt_pc <= sqrt_pl:
-                xt, yt = self.L * (sqrt_pu - sqrt_pl) / (sqrt_pl * sqrt_pu), 0.0
-
-            elif sqrt_pc < sqrt_pu:
-                xt = self.L * (sqrt_pu - sqrt_pc) / (sqrt_pc * sqrt_pu)
-                yt = self.L * (sqrt_pc - sqrt_pl)
+            elif Pc < Pu:
+                xt = self.L * (Pu - Pc) / (Pc * Pu)
+                yt = self.L * (Pc - Pl)
             else:
-                xt, yt = 0.0, self.L * (sqrt_pu - sqrt_pl)
+                xt, yt = 0.0, self.L * (Pu - Pl)
             # print(f"xt = {xt}, yt = {yt}")
             # print(f"{xt - self.x_prev}", f"{yt - self.y_prev}")
             # print(f"{p_cex * (xt - self.x_prev)}", f"{yt - self.y_prev}")
