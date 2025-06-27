@@ -97,7 +97,7 @@ class UniswapV3LPGymEnv(gym.Env):
 
         self.action_space = spaces.Box(
             low=np.array([0.0, 1.0],  dtype=np.float32),
-            high=np.array([1.0, 5.0], dtype=np.float32),
+            high=np.array([1.0, 50.0], dtype=np.float32),
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(
@@ -126,8 +126,8 @@ class UniswapV3LPGymEnv(gym.Env):
         start = max(self.eth_px.index.min(), self.lp_span.index.min())
         end   = min(self.eth_px.index.max(), self.lp_span.index.max())
 
-        self.eth_px        = self.eth_px.loc[start:end]
-        self.lp_span       = self.lp_span.loc[start:end]
+        self.eth_px = self.eth_px.loc[start:end]
+        self.lp_span = self.lp_span.loc[start:end]
         self.uniswap_lp_data = self.uniswap_lp_data[
             (self.uniswap_lp_data["timestamp"] >= start)
             & (self.uniswap_lp_data["timestamp"] <= end)
@@ -254,15 +254,19 @@ class UniswapV3LPGymEnv(gym.Env):
             return 0.0, 0.0
 
         # fees on the positive leg only
-        fee0 = (in_range["amount0"].clip(lower=0) * POOL_FEE_TIER).sum()
-        fee1 = (in_range["amount1"].clip(lower=0) * POOL_FEE_TIER).sum()
+        fee0 = in_range["amount0"].clip(lower=0).to_numpy() * POOL_FEE_TIER
+        fee1 = in_range["amount1"].clip(lower=0).to_numpy() * POOL_FEE_TIER
 
-        L_pool = in_range["liquidity"].mean()
-        share  = min(self.L / (L_pool + self.L), 1.0) if L_pool > 0 else 0.0
-        # SANITY CHECK:
-        if self.L / (L_pool + self.L) > 1.0:
-            print(f"L = {self.L}, L_pool = {L_pool}, share = {share}")
-        return share * fee0, share * fee1
+        share = (self.L / (in_range["liquidity"] + self.L)).clip(upper=1.0).to_numpy()
+        # print(in_range.shape)
+        # print("fee0:", fee0, "fee1", fee1)
+
+        # if np.dot(share, fee0) > 1:
+        #     print("total fee0", np.dot(share, fee0), "total fee1", np.dot(share, fee1))
+        #     print("num of swaps", in_range.shape[0])
+        #     print("transactions:", in_range)
+        
+        return np.dot(share, fee0), np.dot(share, fee1)
 
 
     # ------------------------ feature engineering ------------------------
@@ -347,47 +351,25 @@ class UniswapV3LPGymEnv(gym.Env):
     def step(self, action):
         ts = self.decision_grid[self.idx]
         engage = 1 if action[0] >= 0.5 else 0
-        width  = int(round(np.clip(action[1], 0, 5)))
+        width  = int(round(np.clip(action[1], 0, 50)))
+        reward = 0
 
         p_cex = self._eth_price(ts)   # USDC per ETH
 
         # Ticks 
         curr_tick  = self._dex_tick(ts)
-        tick_l     = curr_tick + 10 * width
-        tick_u     = curr_tick - 10 * width
-
-        # DEX prices (USDC per ETH)
-        price_upper = tick_to_price(tick_u)
-        price_lower = tick_to_price(tick_l)
-        price_current = tick_to_price(curr_tick)
-
-        # DEX prices in sqrtX96 format (sqrt(USDC/ETH))
-        Pu = price_to_sqrtPriceX96(price_upper)
-        Pc = price_to_sqrtPriceX96(price_current)
-        Pl = price_to_sqrtPriceX96(price_lower)
-
-        # Need to remove these variables 
-        # sqrt_pl    = ticks_to_sqrtp(tick_l) 
-        # sqrt_pu    = ticks_to_sqrtp(tick_u)
-        # sqrt_pc    = ticks_to_sqrtp(curr_tick)
-
-        dx_fee, dy_fee = self._accrue_fees(ts)    # token0 = ETH, token1 = USDC
-        # print(dx_fee, dy_fee)
-        self.x_prev += dx_fee
-        self.y_prev += dy_fee
-        # print(self.active, act, f"dx_fee = {dx_fee}, dy_fee = {dy_fee}", "FEE ACCRUED", p * dx_fee + dy_fee)
-        # for this one, use CEX price as a more reliable proxy
-        reward = (p_cex * max(dx_fee, 0) + max(dy_fee, 0))
-        # print(f"reward = {reward:,.2f}")
 
         if not self.active and engage == 1:
             # TODO: revisit
-            self.tick_l, self.tick_u = tick_l, tick_u
+            self.tick_l = curr_tick + 10 * width
+            self.tick_u = curr_tick - 10 * width
 
-            price_upper = tick_to_price(tick_u)
-            price_lower = tick_to_price(tick_l)
+            # DEX prices (USDC per ETH)
+            price_upper = tick_to_price(self.tick_u)
+            price_lower = tick_to_price(self.tick_l)
             price_current = tick_to_price(curr_tick)
 
+            # DEX prices in sqrtX96 format (sqrt(USDC/ETH))
             Pu = price_to_sqrtPriceX96(price_upper)
             Pc = price_to_sqrtPriceX96(price_current)
             Pl = price_to_sqrtPriceX96(price_lower)
@@ -401,32 +383,58 @@ class UniswapV3LPGymEnv(gym.Env):
             self.x_prev = self.current_wealth_in_USDC / eth_share
             self.L = self.x_prev * (Pc*Pu/(Pu-Pc)) / 2**96
             self.y_prev = self.L * (Pc - Pl) / (2**96)
+            # print(self.x_prev, self.L, self.y_prev)
+
+            dy_fee, dx_fee = self._accrue_fees(ts)    # token y = USDC, token x = ETH  
+            self.x_prev += dx_fee # CHange this!!!!
+            self.y_prev += dy_fee
+
+            reward += (p_cex * dx_fee + dy_fee)
+            reward -= self._gas_cost("Mint", ts)
 
             self.active = True
-            reward -= self._gas_cost("Mint", ts)
 
         elif self.active and engage == 0:
             reward -= self._gas_cost("Burn", ts)
             reward -= self._gas_cost("Collect", ts)
             self.active = False
+            # self.tick_l, self.tick_u = None, None
             self.L = 0.0
 
         elif self.active:
-            if Pc <= Pl:
-                xt, yt = self.L * (Pu - Pl) / (Pl * Pu), 0.0
+            # DEX prices (USDC/ETH)
+            price_upper = tick_to_price(self.tick_u)
+            price_lower = tick_to_price(self.tick_l)
+            price_current = tick_to_price(curr_tick)
 
-            elif Pc < Pu:
-                xt = self.L * (Pu - Pc) / (Pc * Pu)
-                yt = self.L * (Pc - Pl)
+            # DEX prices in sqrtX96 format (sqrt(USDC/ETH))
+            Pu = price_to_sqrtPriceX96(price_upper)
+            Pc = price_to_sqrtPriceX96(price_current)
+            Pl = price_to_sqrtPriceX96(price_lower)
+
+            if price_current <= price_lower:
+                xt, yt = (self.L * (Pu - Pl) / (Pl * Pu)) * 2**96, 0.0
+
+            elif price_current < price_upper:
+                xt = (self.L * (Pu - Pc) / (Pc * Pu)) * 2**96
+                yt = (self.L * (Pc - Pl)) / 2**96
             else:
-                xt, yt = 0.0, self.L * (Pu - Pl)
+                xt, yt = 0.0, (self.L * (Pu - Pl)) / 2**96
+            # print(f"{p_cex * (xt - self.x_prev)}", f"{yt - self.y_prev}")
             # print(f"xt = {xt}, yt = {yt}")
             # print(f"{xt - self.x_prev}", f"{yt - self.y_prev}")
-            # print(f"{p_cex * (xt - self.x_prev)}", f"{yt - self.y_prev}")
+            dy_fee, dx_fee = self._accrue_fees(ts)    # token y = USDC, token x = ETH 
+            xt += dx_fee 
+            yt += dy_fee
+
+            reward += (p_cex * dx_fee + dy_fee)
             reward += p_cex * (xt - self.x_prev) + (yt - self.y_prev)
+
             self.x_prev, self.y_prev = xt, yt
 
+
         self.cumulative_pnl += reward
+        self.current_wealth_in_USDC += reward
         self.idx += 1
         self.steps_left -= 1
 
