@@ -11,7 +11,15 @@ from config.env_config import Config
 ETH_USDC_PRICE_PATH = "data/binance/price_data/coinUSDC-price-data/ETHUSDC_20250316.csv"
 UNISWAP_SAMPLE_PATH = "uniswap_lp_data/sorted_uniswap_data1_truncated.csv"
 FEE_TABLE_PATH = "data/uniswap/fee_table.parquet"
+FUNDING_RATE_PATH = "data/binance/hedging_data/data/ETHUSDC_funding_rate_history.csv"
+ETH_USDC_FUTURES_PATH = "data/binance/hedging_data/data/ETHUSDC_futures_minute_data.csv"
 POOL_FEE_TIER = 0.0005
+HEDGING_COST = 0.00036
+FUNDING_TIMES = [
+    pd.Timestamp("2025-06-28 00:00:00"),
+    pd.Timestamp("2025-06-28 08:00:00"),
+    pd.Timestamp("2025-06-28 16:00:00")
+]
 DECIMALS_TOKEN0, DECIMALS_TOKEN1 = 6, 18          # USDC / WETH
 DEC_FACTOR = 10 ** (DECIMALS_TOKEN1 - DECIMALS_TOKEN0)  # 1_000_000_000_000
 SQRTDEC_FACTOR = 10 ** ((DECIMALS_TOKEN1 - DECIMALS_TOKEN0) // 2)  
@@ -97,7 +105,7 @@ class UniswapV3LPGymEnv(gym.Env):
 
         self.action_space = spaces.Box(
             low=np.array([0.0, 1.0],  dtype=np.float32),
-            high=np.array([1.0, 50.0], dtype=np.float32),
+            high=np.array([10.0, 50.0], dtype=np.float32),
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(
@@ -109,14 +117,26 @@ class UniswapV3LPGymEnv(gym.Env):
 
     def _load_data(self):
 
-        cex_cols = ["open_time", "open"]
-        cex = pd.read_csv(ETH_USDC_PRICE_PATH, usecols=cex_cols)
+        cex = pd.read_csv(ETH_USDC_PRICE_PATH, usecols=["open_time", "close"])
         cex["open_time"] = pd.to_datetime(cex["open_time"])        
         self.eth_px = cex.set_index("open_time")
 
         dex_tick = pd.read_csv(UNISWAP_SAMPLE_PATH, usecols=["timestamp", "tick"])
         dex_tick["timestamp"] = pd.to_datetime(dex_tick["timestamp"])
         self.lp_span = dex_tick.set_index("timestamp")
+
+        futures_data = pd.read_csv(ETH_USDC_FUTURES_PATH, usecols=["open_time", "close"])
+        funding_rate_data = pd.read_csv(FUNDING_RATE_PATH, usecols=["fundingTime","fundingRate","markPrice"])
+        funding_rate_data["fundingTime"] = pd.to_datetime(funding_rate_data["fundingTime"])
+        futures_data["open_time"] = pd.to_datetime(futures_data["open_time"])
+        self.futures_data = pd.merge(
+            futures_data,
+            funding_rate_data,
+            left_on="open_time",
+            right_on="fundingTime",
+            how="left"
+        )
+        self.futures_data = self.futures_data.set_index("open_time")
 
         # full raw dataframe (all event types) – we'll slice it later
         dex_raw = pd.read_csv(UNISWAP_SAMPLE_PATH, low_memory=False)
@@ -158,11 +178,11 @@ class UniswapV3LPGymEnv(gym.Env):
     # ------------------------ price & gas helpers ------------------------
     def _eth_price(self, ts: pd.Timestamp) -> float:
         if ts in self.eth_px.index:
-            return float(self.eth_px.loc[ts, "open"])
+            return float(self.eth_px.loc[ts, "close"])
         pos = self.eth_px.index.searchsorted(ts, side="right") - 1
         if pos < 0:
             raise ValueError(f"ETH price not available before {ts}.")
-        return float(self.eth_px.iloc[pos]["open"])
+        return float(self.eth_px.iloc[pos]["close"])
 
     def _gas_cost(self, evt: str, ts) -> float:
         df = self.gas_fee.get(evt)
@@ -351,7 +371,7 @@ class UniswapV3LPGymEnv(gym.Env):
     def step(self, action):
         ts = self.decision_grid[self.idx]
         engage = 1 if action[0] >= 0.5 else 0
-        width  = int(round(np.clip(action[1], 0, 50)))
+        width  = int(action[1])
         reward = 0
 
         p_cex = self._eth_price(ts)   # USDC per ETH
