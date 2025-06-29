@@ -1,3 +1,4 @@
+from __future__ import annotations
 import glob
 from pathlib import Path
 
@@ -7,7 +8,6 @@ import numpy as np
 import pandas as pd
 from hedger import *
 
-from __future__ import annotations
 from config.env_config import Config
 
 ETH_USDC_PRICE_PATH = "data/binance/price_data/coinUSDC-price-data/ETHUSDC_20250316.csv"
@@ -81,7 +81,7 @@ class UniswapV3LPGymEnv(gym.Env):
     metadata = {"render.modes": ["human"]}
 
     def __init__(self, 
-                 hedger, # type: ignore
+                 hedger = None, # type: ignore
                  config: Config | None = None, 
                  feat_num: int | None = None):
         super().__init__()

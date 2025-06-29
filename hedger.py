@@ -11,7 +11,7 @@ class DeltaHedger:
         rebalance_freq: str | pd.Timedelta | None = "1min",
         initial_cash: float = 0.0,
     ) -> None:
-        self.price_series = price_series.sort_index()
+        self.price_series = price_series.sort_index().squeeze()
         self.initial_cash = initial_cash
 
         if rebalance_freq is None:
@@ -57,10 +57,13 @@ class DeltaHedger:
 
     def _price(self, ts: pd.Timestamp) -> float:
         """Exact match else use previous tick."""
+
         if ts in self.price_series.index:
-            return float(self.price_series.loc[ts])
+
+            return float(self.price_series.at[ts])
 
         pos = self.price_series.index.searchsorted(ts, side="right") - 1
         if pos < 0:
             raise ValueError(f"Binance price not available before {ts}.")
-        return float(self.price_series.iloc[pos])
+
+        return float(self.price_series.iat[pos])
