@@ -15,7 +15,7 @@ To run the replication of the paper _Milionis et al., 2022. Automated market mak
 --> swap3.csv <br>
 --> swap4.csv <br>
 --> tradesv2.csv <br>
--->binance_ETH_data.csv <br>
+--> binance_ETH_data.csv <br>
 --> univ2_ETH_USDC_data.csv
 
 For the Reinforcement Learning experiments, we implemented the following structure:
