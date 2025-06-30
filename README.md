@@ -1,6 +1,10 @@
-# Machine-learning-finance-and-complex-systems
+# Optimizing Liquidity Provision in Uniswap V3 Using Reinforcement Learning
 
-This repository contains research code and experiments for training and evaluating reinforcement learning (RL) agents to provide liquidity on Uniswap V3. The project includes custom OpenAI Gym environments, data preprocessing scripts, and RL training/evaluation notebooks.
+Repository for course: Machine Learning for finance and complex systems at ETH Zurich.
+**Authors**: KURLOVICH Nikolaï, ROZMAN Anej, HACHIMI Mehdi, JOLY Julien
+
+This repository contains the official implementation of our Deep Reinforcement Learning framework for optimal liquidity provision in Uniswap v3. We propose a Proximal Policy Optimization (PPO) agent that operates in a continuous DeFi environment and learns to manage LP positions using price and volume data. Our method is benchmarked on real blockchain data, and we replicate theoretical results from Milionis et al., 2022. Automated market making and loss-versus rebalancing to provide intuition in a V2 setting.
+
 
 ## Features
 
