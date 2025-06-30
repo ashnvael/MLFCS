@@ -4,7 +4,6 @@ Repository for course: Machine Learning for finance and complex systems at ETH Z
 
 This repository contains the official implementation of our Deep Reinforcement Learning framework for optimal liquidity provision in Uniswap v3. We propose a Proximal Policy Optimization (PPO) agent that operates in a continuous DeFi environment and learns to manage LP positions using price and volume data. Our method is benchmarked on real blockchain data, and we replicate theoretical results from Milionis et al., 2022. Automated market making and loss-versus rebalancing to provide intuition in a V2 setting.
 
-
 ## Features
 
 - **Custom Gym Environments**: Simulate Uniswap V3 liquidity provision with realistic tick/range mechanics.
