@@ -66,9 +66,16 @@ env_*.py          # Custom Gym environment definitions
 
 (See `requirements.txt` for the full list.)
 
-## Citation
-
-If you use this codebase in your research, please cite appropriately.
+## Reproducing the results
+To run the replication of the paper Milionis et al., 2022. Automated market making and loss-versus rebalancing, the Jupyter Notebook replication_lvr.ipynb needs to be run. The data needed can be found in "_replication_lvr_" data file in Polybox. It should contain the following csv files:
+* swap0.csv
+* swap1.csv
+* swap2.csv
+* swap3.csv
+* swap4.csv
+* tradesv2.csv
+* binance_ETH_data.csv
+* univ2_ETH_USDC_data.csv
 
 ## License
 
