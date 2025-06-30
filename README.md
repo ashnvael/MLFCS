@@ -8,8 +8,15 @@ This repository contains the official implementation of our Deep Reinforcement L
 
 ## 📁 Project Structure
 
-To run the replication of the paper _Milionis et al., 2022. Automated market making and loss-versus rebalancing_, the Jupyter Notebook _replication_lvr.ipynb_ needs to be run. The data needed can be found in ??? file. It should contain the following csv files:
---> swap0.csv  --> swap1csv  --> swap2.cs --> swap3.csv --> swap4.csv --> tradesv2.csv -->binance_ETH_data.csv --> univ2_ETH_USDC_data.csv
+To run the replication of the paper _Milionis et al., 2022. Automated market making and loss-versus rebalancing_, the Jupyter Notebook _replication_lvr.ipynb_ needs to be run. The data needed can be found in ??? file. It should contain the following csv files: <br>
+--> swap0.csv <br>
+--> swap1csv  <br>
+--> swap2.cs <br>
+--> swap3.csv <br>
+--> swap4.csv <br>
+--> tradesv2.csv <br>
+-->binance_ETH_data.csv <br>
+--> univ2_ETH_USDC_data.csv
 
 For the Reinforcement Learning experiments, we implemented the following structure:
 
