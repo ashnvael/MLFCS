@@ -32,6 +32,8 @@ Needs to be changed.
 ├── requirements.txt      <br>
 └── README.md
 
+Further indications to reproduce the resuts.
+
 ## Installation
 List dependencies and installation instructions.
 
