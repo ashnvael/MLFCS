@@ -15,18 +15,12 @@ FEE_TABLE_PATH = "data/uniswap/fee_table.parquet"
 FUNDING_RATE_PATH = "data/binance/hedging_data/data/ETHUSDC_funding_rate_history.csv"
 ETH_USDC_FUTURES_PATH = "data/binance/hedging_data/data/ETHUSDC_futures_minute_data.csv"
 
-#Constants
+# Constants
 POOL_FEE_TIER = 0.0005
-HEDGING_COST = 0.00036
 DECIMALS_TOKEN0, DECIMALS_TOKEN1 = 6, 18    # USDC / WETH
-DEC_FACTOR = 10 ** (DECIMALS_TOKEN1 - DECIMALS_TOKEN0)  
+DEC_FACTOR = 10 ** (DECIMALS_TOKEN1 - DECIMALS_TOKEN0)
 SQRTDEC_FACTOR = 10 ** ((DECIMALS_TOKEN1 - DECIMALS_TOKEN0) // 2)  
 LOG_1P0001 = np.log(1.0001)
-FUNDING_TIMES = [
-    pd.Timestamp("00:00:00"),
-    pd.Timestamp("08:00:00"),
-    pd.Timestamp("16:00:00")
-]
 
 def tick_to_price(tick: int | float) -> float:
     """Tick → dollar price (USDC per ETH)."""
@@ -68,16 +62,15 @@ def _build_fee_table(csv_path: str) -> pd.DataFrame:
             .agg({"fee0": "sum",
                   "fee1": "sum",
                   "liquidity": "mean",
-                  "tick": "mean"}) 
+                  "tick": "mean"})
             .rename(columns={"liquidity": "liquidity_pool",
                              "tick": "tick_close"})
     )
 
     fee_grid["liquidity_pool"] = fee_grid["liquidity_pool"].ffill()
-    fee_grid["tick_close"]     = fee_grid["tick_close"].ffill()
+    fee_grid["tick_close"] = fee_grid["tick_close"].ffill()
     fee_grid.fillna({"fee0": 0.0, "fee1": 0.0}, inplace=True)
     return fee_grid
-
 
 class UniswapV3LPGymEnv(gym.Env):
     metadata = {"render.modes": ["human"]}
@@ -98,14 +91,12 @@ class UniswapV3LPGymEnv(gym.Env):
         self.x_prev = 0.0
         self.y_prev = 0.0
 
-        self.entering = False
-
         self._load_data()
         self._build_decision_grid()
 
         self.action_space = spaces.Box(
-            low=np.array([10.0, 10.0],  dtype=np.float32),
-            high=np.array([50.0, 50.0], dtype=np.float32),
+            low=np.array([0.0, 5.0],  dtype=np.float32),
+            high=np.array([1.0, 25.0], dtype=np.float32),
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(
@@ -174,7 +165,6 @@ class UniswapV3LPGymEnv(gym.Env):
         end = self.lp_span.index.max()
         self.decision_grid = pd.date_range(start=start, end=end, freq="1min")
 
-    # ------------------------ price & gas helpers ------------------------
     def _eth_price(self, ts: pd.Timestamp) -> float:
         if ts in self.eth_px.index:
             return float(self.eth_px.loc[ts, "close"])
@@ -200,6 +190,7 @@ class UniswapV3LPGymEnv(gym.Env):
         Get the average tick from Swap events at or before *ts*.
         If multiple swaps happen at *ts*, their ticks are averaged.
         """
+
         swap_df = self.uniswap_lp_data
         if "event_type" in swap_df.columns:
             swap_df = swap_df[swap_df["event_type"] == "Swap"]
@@ -220,7 +211,6 @@ class UniswapV3LPGymEnv(gym.Env):
         return int(tick)
 
 
-    # ------------------------ pool fee helpers ------------------------
     def _pool_fees(self, ts):
         if ts in self.fee_grid.index:
             row = self.fee_grid.loc[ts]
@@ -256,10 +246,6 @@ class UniswapV3LPGymEnv(gym.Env):
 
         share = (self.L / (in_range["liquidity"] + self.L)).clip(upper=1.0).to_numpy()
         return np.dot(share, feeX), np.dot(share, feeY)
-
-    def _hedge_postion(self, ts):
-        pass
-
 
     # ------------------------ feature engineering ------------------------
     def form_observable_features(
@@ -317,6 +303,7 @@ class UniswapV3LPGymEnv(gym.Env):
         features[10] = ticks_to_sqrtp(self.tick_l)
         features[11] = ticks_to_sqrtp(self.tick_u)
         
+
         return features
 
     # wrapper to keep original naming used elsewhere
@@ -336,7 +323,7 @@ class UniswapV3LPGymEnv(gym.Env):
 
         if sa < sp < sb:
             # This formula calculates L based on the desired value to invest
-            # Derived in the paper
+            # derived in the paper
             L = total_value_to_invest / ((sp - sa) + (1/sp - 1/sb) * p_cex)
 
             y_amount = L * (sp - sa)
@@ -357,13 +344,13 @@ class UniswapV3LPGymEnv(gym.Env):
         sa = Pl / (2**96)
         sb = Pu / (2**96)
 
-        if sp <= sa: # Price is below the range,  all in asset X (ETH)
+        if sp <= sa: # Price is below the range, position is all ETH
             x_amount = L * (1/sa - 1/sb)
             y_amount = 0.0
-        elif sa < sp < sb:
+        elif sa < sp < sb: 
             x_amount = L * (1/sp - 1/sb)
             y_amount = L * (sp - sa)
-        else: # Price is above the range, all in asset Y (USDC)
+        else: # Price is above the range, position is all USDC
             x_amount = 0.0
             y_amount = L * (sb - sa)
 
@@ -390,36 +377,30 @@ class UniswapV3LPGymEnv(gym.Env):
         curr_tick = self._dex_tick(ts)
         p_curr = tick_to_price(curr_tick)
         
-        # --- 1. Initialize variables for the step ---
+        # --- 1. Initialize variables  ---
         value_before = self.current_wealth_in_USDC
-
         new_total_value = value_before 
-        reward = 0.0
+        gas_cost_for_step = 0
 
-        tick_l = int(action[0]*10)
-        tick_u = int(action[1]*10)
+        engage = 1 if action[0] >= 0.5 else 0
+        width  = int(action[1]*10)
 
-        price_upper = tick_to_price(self.tick_u)
-        price_lower = tick_to_price(self.tick_l)
-        Pu = price_to_sqrtPriceX96(price_upper)
-        Pl = price_to_sqrtPriceX96(price_lower)
-        Pc = price_to_sqrtPriceX96(p_curr)
+        # --- 2. Execute agent's decision ---
 
-        self.entering = False
-
-        # === CASE 1: ENTER a position if the price is out of range ===
-        if Pc<Pl or Pc>Pu:
-            gas_cost_for_step = self._gas_cost("Mint", ts) 
-            gas_cost_for_step += self._gas_cost("Burn", ts) + self._gas_cost("Collect", ts) 
-
-            self.tick_u = curr_tick - tick_u
-            self.tick_l = curr_tick + tick_l
+        # === CASE 1: ENTER a position ===
+        if (not self.active and engage == 1):
+            gas_cost_for_step = self._gas_cost("Mint", ts)
+            
+            self.tick_u = curr_tick - width
+            self.tick_l = curr_tick + width
 
             price_upper = tick_to_price(self.tick_u)
             price_lower = tick_to_price(self.tick_l)
+            
             Pu = price_to_sqrtPriceX96(price_upper)
             Pl = price_to_sqrtPriceX96(price_lower)
-            
+            Pc = price_to_sqrtPriceX96(p_curr) 
+
             investable_wealth = value_before - gas_cost_for_step
             L, x, y = self._calculate_initial_liquidity(Pc, Pl, Pu, investable_wealth, p_curr)
 
@@ -427,48 +408,66 @@ class UniswapV3LPGymEnv(gym.Env):
             self.x_prev = x 
             self.y_prev = y
             self.active = True
-            self.entering = True
 
+            # Reset total fee trackers for new position
             self.total_fees_x = 0.0
             self.total_fees_y = 0.0
 
             new_total_value = investable_wealth
-            reward = new_total_value - value_before
 
-        # === CASE 3: HOLD an active position if price is in range ===
-        else:
+        # === CASE 2: EXIT a position ===
+        elif self.active and engage == 0:
+            gas_cost_for_step = self._gas_cost("Burn", ts) + self._gas_cost("Collect", ts)
+
+            price_upper = tick_to_price(self.tick_u)
+            price_lower = tick_to_price(self.tick_l)
+            Pu = price_to_sqrtPriceX96(price_upper)
+            Pl = price_to_sqrtPriceX96(price_lower)
+            Pc = price_to_sqrtPriceX96(p_curr) 
+
+
+            xt, yt = self._calculate_assets_from_liquidity(self.L, Pc, Pl, Pu)
+            xt += self.total_fees_x
+            yt += self.total_fees_y
+            
+            withdrawn_value = p_curr * xt + yt
+            new_total_value = withdrawn_value - gas_cost_for_step
+
+            # Reset position state
+            self.active = False
+            self.L = 0.0
+
+        # === CASE 3: HOLD an active position ===
+        elif self.active:
+            Pu = price_to_sqrtPriceX96(tick_to_price(self.tick_u))
+            Pl = price_to_sqrtPriceX96(tick_to_price(self.tick_l))
+            Pc = price_to_sqrtPriceX96(p_curr)
 
             dx_fee, dy_fee = self._accrue_fees(ts)
-            fee_pnl = p_curr * dx_fee + dy_fee
-            
-            xt, yt = self._calculate_assets_from_liquidity(self.L, Pc, Pl, Pu)
-
-            # Calculate PnL from impermanent loss (the hedged component)
-            impermanent_loss_pnl = (xt - self.x_prev) * p_curr + (yt - self.y_prev)
-
-            # The reward for the agent is the hedged PnL
-            reward = fee_pnl + impermanent_loss_pnl
-
-            # The real portfolio value is still the unhedged value. 
             self.total_fees_x += dx_fee
             self.total_fees_y += dy_fee
+            
+            xt, yt = self._calculate_assets_from_liquidity(self.L, Pc, Pl, Pu)
+            self.x_prev = xt
+            self.y_prev = yt
+
             total_x_in_pool = xt + self.total_fees_x
             total_y_in_pool = yt + self.total_fees_y
             new_total_value = p_curr * total_x_in_pool + total_y_in_pool
             
-            self.x_prev, self.y_prev = xt, yt
+        # --- 3. Update state ---
+        
+        reward = new_total_value - value_before
 
-        # --- 2. Update state ---
         self.current_wealth_in_USDC = new_total_value
         self.cumulative_pnl += reward
-        
+
         self.idx += 1
         self.steps_left -= 1
         done = self.steps_left == 0 or self.idx >= len(self.decision_grid)
         obs = self._features(self.decision_grid[self.idx]) if not done else None
 
         return obs, reward, done, False, {}
-
 
     def render(self, mode="human"):
         ts = self.decision_grid[self.idx]

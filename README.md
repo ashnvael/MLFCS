@@ -1,15 +1,16 @@
 # Optimizing Liquidity Provision in Uniswap V3 Using Reinforcement Learning
 Repository for course: Machine Learning for finance and complex systems at ETH Zurich. <br>
-**Authors**: KURLOVICH Nikolaï, ROZMAN Anej, HACHIMI Mehdi, JOLY Julien
 
-This repository contains the official implementation of our Deep Reinforcement Learning framework for optimal liquidity provision in Uniswap v3. We propose a Proximal Policy Optimization (PPO) agent that operates in a continuous DeFi environment and learns to manage LP positions using price and volume data. Our method is benchmarked on real blockchain data, and we replicate theoretical results from Milionis et al., 2022. Automated market making and loss-versus rebalancing to provide intuition in a V2 setting.
+This repository contains the official implementation of our Deep Reinforcement Learning framework for optimizing liquidity provision in Uniswap v3. We propose a Proximal Policy Optimization (PPO) agent that operates in a continuous DeFi environment and learns to manage LP positions using price and volume data. Our method is benchmarked on real blockchain data, and we replicate theoretical results from Milionis et al., 2022. Automated market making and loss-versus rebalancing to provide intuition in a V2 setting.
 
 ## Features
 
 - **Custom Gym Environments**: Simulate Uniswap V3 liquidity provision with realistic tick/range mechanics.
 - **RL Training**: Train agents using Stable Baselines3 (PPO) to optimize liquidity provision strategies.
-- **Data**: Includes historical price and pool data for ETH/USDC and other pairs.
+- **Data**: Includes historical price and data for Uniswap V3 0.05% fee ETH/USDC pool.
 - **Analysis & Visualization**: Notebooks and scripts for analyzing agent performance and market data.
+
+- **LVR Replication**: Reproduction of Loss-Versus-Rebalancing theoretical results.
 
 ## Project Structure
 
@@ -17,8 +18,9 @@ This repository contains the official implementation of our Deep Reinforcement L
 config/           # Environment and config files
 data/             # Market and pool data (Binance, Uniswap)
 models/           # Saved RL agent models
+images/           # Images from our test runs (Also accessible in the notebooks)
 logs/             # Training logs and monitor files
-uniswap_lp_data/  # Additional Uniswap LP data
+uniswap_lp_data/  # Additional Uniswap LP data that needs to be downloaded
 *.ipynb           # Main notebooks for training, evaluation, and analysis
 env_*.py          # Custom Gym environment definitions
 ```
@@ -29,19 +31,42 @@ env_*.py          # Custom Gym environment definitions
 
 1. Clone the repository:
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/ashnvael/MLFCS.git
    cd MLFCS
    ```
 2. (Recommended) Create a virtual environment:
    ```bash
    python3 -m venv venv
-   source venv/bin/activate
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Install the `uniswap_lp_data` folder from polybox here: link
+
+### Data Setup
+
+**Important**: This project requires large datasets that are not included in the repository due to size constraints.
+
+1. **Download Uniswap LP Data**:
+   - Download the `uniswap_lp_data` folder from the provided [Polybox link](https://polybox.ethz.ch/index.php/s/DpSoBdsXtPR2Z4q)
+   - Place it in the project root directory
+   - The folder contains historical Uniswap V2 and V3 events and pool data needed to run the agents
+
+2. **Optional: Collect Fresh Data (Data from 2024-2025 is included in the repository)**:
+   - Set up Binance API keys in environment variables:
+     ```bash
+     export BINANCE_API_KEY="your_api_key"
+     export BINANCE_SECRET_KEY="your_secret_key"
+     ```
+   - Run data collection scripts:
+     ```bash
+     # Price data collection
+     python data/binance/price_data/binance-price-data.py
+     
+     # Hedging data collection (requires API keys)
+     python data/binance/hedging_data/binance-hedging-data.py
+     ```
 
 ### Usage
 
@@ -50,10 +75,13 @@ env_*.py          # Custom Gym environment definitions
   Adjust hyperparameters and environment settings as needed.
 
 - **Data Preprocessing**:  
-  Use `data_preprocessing.ipynb` to prepare and analyze raw data.
+  Use `data_preprocessing.ipynb` to prepare and analyze different chunks of raw data (not necessary).
 
-- **Analysis**:  
-  Visualize agent behavior and compare CEX/DEX prices using the plotting sections in the notebooks.
+### LVR Implementation
+The `LVR_replication.ipynb` implements the Loss-Versus-Rebalancing framework from Milionis et al., 2022, showing:
+- Theoretical vs. empirical LVR calculations
+- Hedging effectiveness at different frequencies
+- Fee income vs. impermanent loss analysis
 
 ## Requirements
 
@@ -62,19 +90,29 @@ env_*.py          # Custom Gym environment definitions
 - gymnasium
 - pandas, numpy, matplotlib, tqdm
 - torch
+- requests
+- seaborn
 
 (See `requirements.txt` for the full list.)
 
-## Reproducing the results
-To run the replication of the paper Milionis et al., 2022. Automated market making and loss-versus rebalancing, the Jupyter Notebook replication_lvr.ipynb needs to be run. The data needed can be found in "_replication_lvr_" data file in Polybox. It should contain the following csv files:
-* swap0.csv
-* swap1.csv
-* swap2.csv
-* swap3.csv
-* swap4.csv
-* tradesv2.csv
-* binance_ETH_data.csv
-* univ2_ETH_USDC_data.csv
+## Troubleshooting
+
+### Common Issues
+
+1. **Missing Data Files**:
+   - Ensure `uniswap_lp_data` folder is downloaded and placed correctly
+   - Check that all required CSV files are present
+
+2. **API Rate Limits**:
+   - Data collection scripts include rate limiting
+   - Increase sleep intervals if hitting Binance API limits
+
+3. **Memory Issues**:
+   - Large datasets may require significant RAM
+   - Consider using smaller data subsets for testing
+
+## Authors
+Kurlovich Nikolai, Rozman Anej, Hachimi Mehdi, Joly Julien - Team Eigenforce
 
 ## License
 
