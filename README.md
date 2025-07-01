@@ -71,11 +71,11 @@ env_*.py          # Custom Gym environment definitions
 ### Usage
 
 - **Training an RL Agent**:  
-  Use the provided notebooks (e.g., `RLagent_semi_active_tick_range.ipynb`) to train and evaluate agents.  
+  Use the provided notebooks (e.g., `deep_rl_agent_semi_active_tick_range.ipynb`) to train and evaluate agents.  
   Adjust hyperparameters and environment settings as needed.
 
 - **Data Preprocessing**:  
-  Use `data_preprocessing.ipynb` to prepare and analyze different chunks of raw data (not necessary).
+  Use `data_preprocessing.ipynb` to prepare and analyze different chunks of raw data (not necessary if downloading full uniswap_lp_data folder).
 
 ### LVR Implementation
 The `LVR_replication.ipynb` implements the Loss-Versus-Rebalancing framework from Milionis et al., 2022, showing:
